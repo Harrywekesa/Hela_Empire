@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <h2>Register</h2>
+    <form method="POST">
+        <label for="phone_number">Phone Number:</label>
+        <input type="text" id="phone_number" name="phone_number" required>
+        <br>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+        <br>
+        <label for="referral_code">Referral Code:</label>
+        <input type="text" id="referral_code" name="referral_code" value="{{ referral_code }}">
+        <br>
+        <button type="submit" class="golden-button">Register</button>
+    </form>
+    <a href="{{ url_for('login') }}" class="golden-button">Already have an account? Login here</a>
+</body>
+</html>

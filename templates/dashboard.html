@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block content %}
+<main>
+    <h2>Dashboard</h2>
+    <p>Phone Number: {{ dashboard_data.phone_number }}</p>
+    <p>Balance: {{ dashboard_data.balance }}</p>
+    <p>Referral Code: {{ dashboard_data.referral_code }}</p>
+    <p>Referred By: {{ dashboard_data.referred_by }}</p>
+    {% if not dashboard_data.account_activated %}
+        <button class="red-button" id="activate-button">Activate</button>
+    {% endif %}
+    <a href="{{ url_for('referral_link', user_id=user_id) }}" class="golden-button">Get Referral Link</a>
+    <button class="golden-button" id="show-referrals-button">View Referrals</button>
+
+    <!-- Withdrawal Button and Modal Dialog -->
+    <button class="golden-button" id="withdraw-button">Withdraw</button>
+
+    <div id="withdrawal-dialog" class="dialog" style="display: none;">
+        <div class="dialog-content">
+            <form id="withdraw-form">
+                <label for="withdraw-amount">Enter Amount to Withdraw (Ksh):</label>
+                <input type="number" id="withdraw-amount" name="withdrawAmount" min="50" required>
+                <button type="button" id="confirm-withdraw-button" class="golden-button">Confirm</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="referrals-container" style="display: none;">
+        {% for level in range(1, 4) %}
+            <h3>Level {{ level }}</h3>
+            <table id="referrals-table-level-{{ level }}">
+                <thead>
+                    <tr>
+                        <th>Phone Number</th>
+                        <th>Amount Contributed</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        {% endfor %}
+    </div>
+</main>
+
+<!-- Activation Dialog Box -->
+<div id="activation-dialog" class="dialog" style="display: none;">
+    <div class="dialog-content">
+        <p>Confirm deposit Ksh. 500 to your account?</p>
+        <button class="golden-button" id="proceed-button">Proceed</button>
+        <button class="golden-button" id="decline-button">Decline</button>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const activateButton = document.getElementById('activate-button');
+        const proceedButton = document.getElementById('proceed-button');
+        const declineButton = document.getElementById('decline-button');
+        const showReferralsButton = document.getElementById('show-referrals-button');
+        const withdrawButton = document.getElementById('withdraw-button');
+        const withdrawDialog = document.getElementById('withdrawal-dialog');
+        const confirmWithdrawButton = document.getElementById('confirm-withdraw-button');
+        const withdrawAmountInput = document.getElementById('withdraw-amount');
+
+        // Activate Account Button
+        if (activateButton) {
+            activateButton.addEventListener('click', function() {
+                document.getElementById('activation-dialog').style.display = 'block';
+            });
+        }
+
+        // Proceed with Activation
+        if (proceedButton) {
+            proceedButton.addEventListener('click', function() {
+                fetch('{{ url_for("activate_account", user_id=user_id) }}', { method: 'POST' })
+                    .then(response => {
+                        if (response.ok) {
+                            window.location.reload();
+                        } else {
+                            alert('Failed to activate account.');
+                        }
+                    });
+            });
+        }
+
+        // Decline Activation
+        if (declineButton) {
+            declineButton.addEventListener('click', function() {
+                document.getElementById('activation-dialog').style.display = 'none';
+            });
+        }
+
+        // Show Referrals Button
+        if (showReferralsButton) {
+            showReferralsButton.addEventListener('click', function() {
+                window.location.href = '{{ url_for("referrals_page", user_id=user_id) }}';
+            });
+        }
+
+        // Withdraw Button
+        if (withdrawButton) {
+            withdrawButton.addEventListener('click', function() {
+                withdrawDialog.style.display = 'block';
+            });
+        }
+
+        // Confirm Withdrawal
+        if (confirmWithdrawButton) {
+            confirmWithdrawButton.addEventListener('click', function() {
+                var amount = withdrawAmountInput.value;
+                if (amount < 50) {
+                    alert("Minimum withdrawal amount is Ksh. 50.");
+                    return;
+                }
+                fetch('{{ url_for("withdraw", user_id=user_id) }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ amount: amount })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message === 'Withdrawal successful') {
+                        alert("Withdrawal successful!");
+                        window.location.reload();
+                    } else {
+                        alert(data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to process withdrawal.');
+                });
+            });
+        }
+    });
+</script>
+
+{% endblock %}

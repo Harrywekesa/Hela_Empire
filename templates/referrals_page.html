@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block content %}
+<main>
+    <h2>Referrals for {{ user.phone_number }}</h2>
+    {% for level, referrals in referrals_by_level.items() %}
+        <h3>Level {{ level }}</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Phone Number</th>
+                    <th>Amount Contributed</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for referral in referrals %}
+                    <tr>
+                        <td>{{ referral.phone_number }}</td>
+                        <td>{{ referral.earning }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endfor %}
+    <a href="{{ url_for('dashboard', user_id=user.id) }}" class="golden-button">Back to Dashboard</a>
+</main>
+{% endblock %}
