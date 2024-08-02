@@ -9,12 +9,16 @@ import requests
 from requests.auth import HTTPBasicAuth
 import base64
 from datetime import datetime
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
 # MPesa credentials
-MPESA_CONSUMER_KEY = 'your_consumer_key'
-MPESA_CONSUMER_SECRET = 'your_consumer_secret'
-MPESA_SHORTCODE = 'your_shortcode'
-MPESA_PASSKEY = 'your_passkey'
+MPESA_CONSUMER_KEY = '0VPGtebKC7fA2ZJ3OSFs7kMdAj05l6OdwcxFALmZu7tAFu1y'
+MPESA_CONSUMER_SECRET = '90LgyoqXJpTGyq7QxzZIIFy7eigHOR9WQ7jjqIDtWXefqWS3fOmzECKO74uCVlH3'
+MPESA_SHORTCODE = '600979'
+MPESA_PASSKEY = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
 
 app = Flask(__name__, static_folder='static')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
@@ -199,61 +203,70 @@ def activate_account(user_id):
     if not user:
         return jsonify({'message': 'User not found'}), 404
     
-    # Initiate the MPESA payment
+    # Initiate the MPesa payment
     response = initiate_mpesa_payment(user.phone_number, 500)
-    if response.get('ResponseCode') == '0':  # Successful request
-        user.account_activated = True
-        user.balance = 0  # Balance is set to 0 after activation
-        db.session.commit()
+    app.logger.info(f"MPesa payment response: {response}")
 
-        # Process referral earnings
-        referral_earnings = {1: 300, 2: 300, 3: 75}
-        referring_user = User.query.filter_by(referral_code=user.referred_by).first()
-        
-        if referring_user:
-            # Level 1 activation
-            if referring_user.id != user.id:
-                referring_user.balance += referral_earnings[1]
-                db.session.commit()
-                
-                # Process Level 2
-                if referring_user.referred_by:
-                    level_1_referrer = User.query.filter_by(referral_code=referring_user.referred_by).first()
-                    if level_1_referrer:
-                        level_1_referrer.balance += referral_earnings[2]
-                        db.session.commit()
-
-                        # Process Level 3
-                        if level_1_referrer.referred_by:
-                            level_2_referrer = User.query.filter_by(referral_code=level_1_referrer.referred_by).first()
-                            if level_2_referrer:
-                                level_2_referrer.balance += referral_earnings[3]
-                                db.session.commit()
-
-        return '', 204
+    if response.get('ResponseCode') == '0':  # Successful request initiation
+        return jsonify({'message': 'Payment initiated successfully. Please wait for confirmation.'}), 200
     else:
-        return jsonify({'message': 'Failed to process payment'}), 400
+        return jsonify({'message': 'Failed to initiate payment'}), 400
+
 
 @app.route('/mpesa/callback', methods=['POST'])
 def mpesa_callback():
-    data = request.get_json()
-    
-    # Extract relevant information from the callback
-    phone_number = data.get('PhoneNumber')
-    amount = data.get('Amount')
-    transaction_id = data.get('TransactionID')
-    
-    # Verify the transaction details and update the user account
-    user = User.query.filter_by(phone_number=phone_number).first()
-    if user:
-        user.account_activated = True
-        user.balance = 0
-        db.session.commit()
+    data = request.json
+    app.logger.info(f"MPesa callback data: {data}")
 
-        # Optionally, log the transaction details or handle any additional logic
-        return jsonify({'status': 'success'}), 200
+    # Process the callback data
+    result_code = data['Body']['stkCallback']['ResultCode']
+    result_desc = data['Body']['stkCallback']['ResultDesc']
+    merchant_request_id = data['Body']['stkCallback']['MerchantRequestID']
+    checkout_request_id = data['Body']['stkCallback']['CheckoutRequestID']
+
+    # Log the result
+    app.logger.info(f"Result code: {result_code}, Result description: {result_desc}")
+
+    if result_code == 0:
+        # Payment was successful
+        phone_number = data['Body']['stkCallback']['CallbackMetadata']['Item'][4]['Value']
+        user = User.query.filter_by(phone_number=phone_number).first()
+        
+        if user:
+            user.account_activated = True
+            user.balance = 0  # Balance is set to 0 after activation
+            db.session.commit()
+
+            # Process referral earnings
+            referral_earnings = {1: 300, 2: 300, 3: 75}
+            referring_user = User.query.filter_by(referral_code=user.referred_by).first()
+            
+            if referring_user:
+                # Level 1 activation
+                if referring_user.id != user.id:
+                    referring_user.balance += referral_earnings[1]
+                    db.session.commit()
+                    
+                    # Process Level 2
+                    if referring_user.referred_by:
+                        level_1_referrer = User.query.filter_by(referral_code=referring_user.referred_by).first()
+                        if level_1_referrer:
+                            level_1_referrer.balance += referral_earnings[2]
+                            db.session.commit()
+
+                            # Process Level 3
+                            if level_1_referrer.referred_by:
+                                level_2_referrer = User.query.filter_by(referral_code=level_1_referrer.referred_by).first()
+                                if level_2_referrer:
+                                    level_2_referrer.balance += referral_earnings[3]
+                                    db.session.commit()
+
+            return jsonify({'message': 'Payment processed successfully'}), 200
+        else:
+            return jsonify({'message': 'User not found'}), 404
     else:
-        return jsonify({'status': 'failed', 'message': 'User not found'}), 404
+        return jsonify({'message': f'Payment failed: {result_desc}'}), 400
+
 
 
 @app.route('/withdraw/<int:user_id>', methods=['POST'])
@@ -324,28 +337,35 @@ def get_mpesa_token():
         raise Exception("Failed to generate token")
 
 def initiate_mpesa_payment(phone_number, amount):
-    access_token = get_mpesa_token()
-    api_url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    password, timestamp = generate_mpesa_password()
-    payload = {
-        "BusinessShortCode": MPESA_SHORTCODE,
-        "Password": password,
-        "Timestamp": timestamp,
-        "TransactionType": "CustomerPayBillOnline",
-        "Amount": amount,
-        "PartyA": phone_number,
-        "PartyB": MPESA_SHORTCODE,
-        "PhoneNumber": phone_number,
-        "CallBackURL": "https://yourdomain.com/mpesa/callback",  # Replace with your callback URL
-        "AccountReference": "ref123",
-        "TransactionDesc": "Account Transaction"
-    }
-    response = requests.post(api_url, json=payload, headers=headers)
-    return response.json()
+    try:
+        url = 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
+        headers = {
+            'Authorization': 'Bearer {}'.format(get_mpesa_token()),
+            'Content-Type': 'application/json',
+        }
+        password, timestamp = generate_mpesa_password()
+        payload = {
+            "BusinessShortCode": MPESA_SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": amount,
+            "PartyA": 254741947264,
+            "PartyB": "600000",
+            "PhoneNumber": phone_number,
+            "CallBackURL": "https://7937-197-138-206-10.ngrok-free.app/mpesa/callback",
+            "AccountReference": "TestPay",
+            "TransactionDesc": "Payment for activation"
+        }
+        response = requests.post(url, json=payload, headers=headers)
+        logging.debug("MPESA Request Payload: %s", payload)
+        logging.debug("MPESA Response: %s", response.json())
+        return response.json()
+    except Exception as e:
+        logging.error("Error initiating MPESA payment: %s", e)
+        return {'ResponseCode': '1', 'ResponseDescription': 'Error initiating payment'}
+
+
 
 @app.route('/referrals/<int:user_id>')
 def referrals(user_id):
